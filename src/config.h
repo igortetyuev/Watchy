@@ -94,13 +94,15 @@
 // wifi
 #define WIFI_AP_TIMEOUT 60
 #define WIFI_AP_SSID    "Watchy AP"
+#define MAX_WIFI_NETWORKS 5
+#define WIFI_LONGPRESS_MS 700
 // menu
 #define WATCHFACE_STATE -1
 #define MAIN_MENU_STATE 0
 #define APP_STATE       1
 #define FW_UPDATE_STATE 2
-#define MENU_HEIGHT     25
-#define MENU_LENGTH     6
+#define MENU_HEIGHT     20
+#define MENU_LENGTH     9
 // set time
 #define SET_HOUR   0
 #define SET_MINUTE 1
@@ -108,6 +110,15 @@
 #define SET_MONTH  3
 #define SET_DAY    4
 #define HOUR_12_24 24
+// alarm
+#define ALARM_SNOOZE_MIN      10
+#define ALARM_REPEAT_DELAY_MS 2000   // hold MENU this long before auto-repeat
+#define ALARM_REPEAT_MS       200    // auto-repeat period (5 Hz)
+#define ALARM_RING_MAX_MS     300000 // give up ringing after 5 min (battery)
+#define ALARM_LATE_MIN        5      // fire up to this many minutes after the target if a wake was missed
+#define SET_ALARM_HOUR   0
+#define SET_ALARM_MINUTE 1
+#define SET_ALARM_ON     2
 // BLE OTA
 #define BLE_DEVICE_NAME        "Watchy BLE OTA"
 #define WATCHFACE_NAME         "Watchy 7 Segment"

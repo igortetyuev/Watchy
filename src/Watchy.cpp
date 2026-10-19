@@ -1,4 +1,5 @@
 #include "Watchy.h"
+#include <Preferences.h>
 
 #ifdef ARDUINO_ESP32S3_DEV
   Watchy32KRTC Watchy::RTC;
@@ -18,6 +19,12 @@ RTC_DATA_ATTR bool BLE_CONFIGURED;
 RTC_DATA_ATTR weatherData currentWeather;
 RTC_DATA_ATTR int weatherIntervalCounter = -1;
 RTC_DATA_ATTR long gmtOffset = 0;
+RTC_DATA_ATTR uint8_t faceIndex = 0;
+RTC_DATA_ATTR uint8_t alarmHour = 7;
+RTC_DATA_ATTR uint8_t alarmMinute = 0;
+RTC_DATA_ATTR bool alarmEnabled = false;
+RTC_DATA_ATTR int16_t snoozeAt = -1;
+RTC_DATA_ATTR int16_t alarmHandled = -1;
 RTC_DATA_ATTR bool alreadyInMenu         = true;
 RTC_DATA_ATTR bool USB_PLUGGED_IN = false;
 RTC_DATA_ATTR tmElements_t bootTime;
@@ -43,6 +50,10 @@ void Watchy::init(String datetime) {
   case ESP_SLEEP_WAKEUP_EXT0: // RTC Alarm
   #endif
     RTC.read(currentTime);
+    if (alarmDue()) {
+      ringAlarm();
+      break;
+    }
     switch (guiState) {
     case WATCHFACE_STATE:
       showWatchFace(true); // partial updates on tick
@@ -65,6 +76,11 @@ void Watchy::init(String datetime) {
     }
     break;
   case ESP_SLEEP_WAKEUP_EXT1: // button Press
+    RTC.read(currentTime);
+    if (alarmDue()) {
+      ringAlarm(); // shows the watch face; the button press is consumed
+      break;
+    }
     handleButtonPress();
     break;
   #ifdef ARDUINO_ESP32S3_DEV
@@ -84,7 +100,21 @@ void Watchy::init(String datetime) {
     pinMode(USB_DET_PIN, INPUT);
     USB_PLUGGED_IN = (digitalRead(USB_DET_PIN) == 1);
     #endif    
-    gmtOffset = settings.gmtOffset;
+    Preferences prefs;
+    prefs.begin("watchy", true);
+    gmtOffset = prefs.getLong("gmtOffset", settings.gmtOffset);
+    faceIndex = prefs.getUChar("face", 0);
+    alarmHour = prefs.getUChar("alarmH", 7);
+    alarmMinute = prefs.getUChar("alarmM", 0);
+    alarmEnabled = prefs.getBool("alarmOn", false);
+    if (alarmHour > 23) {
+      alarmHour = 23;
+    }
+    if (alarmMinute > 59) {
+      alarmMinute = 59;
+    }
+    snoozeAt = -1;
+    prefs.end();
     RTC.read(currentTime);
     RTC.read(bootTime);
     showWatchFace(false); // full update on reset
@@ -155,13 +185,22 @@ void Watchy::handleButtonPress() {
         setTime();
         break;
       case 4:
-        setupWifi();
+        showWifiList();
         break;
       /*case 5:
         showUpdateFW();
         break;*/
       case 5:
         showSyncNTP();
+        break;
+      case 6:
+        setTimezone();
+        break;
+      case 7:
+        showFaces();
+        break;
+      case 8:
+        setAlarm();
         break;
       default:
         break;
@@ -237,13 +276,22 @@ void Watchy::handleButtonPress() {
             setTime();
             break;
           case 4:
-            setupWifi();
+            showWifiList();
             break;
           /*case 5:
             showUpdateFW();
             break;*/
           case 5:
             showSyncNTP();
+            break;
+          case 6:
+            setTimezone();
+            break;
+          case 7:
+            showFaces();
+            break;
+          case 8:
+            setAlarm();
             break;
           default:
             break;
@@ -288,28 +336,28 @@ void Watchy::handleButtonPress() {
 
 void Watchy::showMenu(byte menuIndex, bool partialRefresh) {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
 
   int16_t x1, y1;
   uint16_t w, h;
   int16_t yPos;
 
   const char *menuItems[] = {
-      "About Watchy", "Vibrate Motor", "Show Accelerometer",
-      "Set Time",     "Setup WiFi",    /*"Update Firmware",*/
-      "Sync NTP"};
+      "О часах", "Вибрация", "Акселерометр",
+      "Время",   "Настройка Wi-Fi", /*"Обновление",*/
+      "Синхр. времени", "Часовой пояс", "Циферблат", "Будильник"};
   for (int i = 0; i < MENU_LENGTH; i++) {
     yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
     display.setCursor(0, yPos);
     if (i == menuIndex) {
       display.getTextBounds(menuItems[i], 0, yPos, &x1, &y1, &w, &h);
-      display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_WHITE);
-      display.setTextColor(GxEPD_BLACK);
-      display.println(menuItems[i]);
-    } else {
+      display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
       display.setTextColor(GxEPD_WHITE);
-      display.println(menuItems[i]);
+      printlnRU(menuItems[i]);
+    } else {
+      display.setTextColor(GxEPD_BLACK);
+      printlnRU(menuItems[i]);
     }
   }
 
@@ -321,28 +369,28 @@ void Watchy::showMenu(byte menuIndex, bool partialRefresh) {
 
 void Watchy::showFastMenu(byte menuIndex) {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
 
   int16_t x1, y1;
   uint16_t w, h;
   int16_t yPos;
 
   const char *menuItems[] = {
-      "About Watchy", "Vibrate Motor", "Show Accelerometer",
-      "Set Time",     "Setup WiFi",    /*"Update Firmware",*/
-      "Sync NTP"};
+      "О часах", "Вибрация", "Акселерометр",
+      "Время",   "Настройка Wi-Fi", /*"Обновление",*/
+      "Синхр. времени", "Часовой пояс", "Циферблат", "Будильник"};
   for (int i = 0; i < MENU_LENGTH; i++) {
     yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
     display.setCursor(0, yPos);
     if (i == menuIndex) {
       display.getTextBounds(menuItems[i], 0, yPos, &x1, &y1, &w, &h);
-      display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_WHITE);
-      display.setTextColor(GxEPD_BLACK);
-      display.println(menuItems[i]);
-    } else {
+      display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
       display.setTextColor(GxEPD_WHITE);
-      display.println(menuItems[i]);
+      printlnRU(menuItems[i]);
+    } else {
+      display.setTextColor(GxEPD_BLACK);
+      printlnRU(menuItems[i]);
     }
   }
 
@@ -353,24 +401,24 @@ void Watchy::showFastMenu(byte menuIndex) {
 
 void Watchy::showAbout() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 20);
 
-  display.print("LibVer: ");
+  printRU("Версия: ");
   display.println(WATCHY_LIB_VER);
 
-  display.print("Rev: v");
+  printRU("Ревизия: v");
   display.println(getBoardRevision());
 
-  display.print("Batt: ");
+  printRU("Батарея: ");
   float voltage = getBatteryVoltage();
   display.print(voltage);
   display.println("V");
 
   #ifndef ARDUINO_ESP32S3_DEV
-  display.print("Uptime: ");
+  printRU("Аптайм: ");
   RTC.read(currentTime);
   time_t b = makeTime(bootTime);
   time_t c = makeTime(currentTime);
@@ -380,11 +428,11 @@ void Watchy::showAbout() {
   int hours = (totalSeconds % 86400) / 3600;
   int days = (totalSeconds % (86400 * 30)) / 86400; 
   display.print(days);
-  display.print("d");
+  printRU("д");
   display.print(hours);
-  display.print("h");
+  printRU("ч");
   display.print(minutes);
-  display.println("m");  
+  printlnRU("м");  
   #endif
   
   if(WIFI_CONFIGURED){
@@ -393,7 +441,7 @@ void Watchy::showAbout() {
     display.print("IP: ");
     display.println(IPAddress(lastIPAddress).toString());
   }else{
-    display.println("WiFi Not Connected");
+    printlnRU("Wi-Fi не подключен");
   }
   display.display(false); // full refresh
 
@@ -402,11 +450,11 @@ void Watchy::showAbout() {
 
 void Watchy::showBuzz() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(70, 80);
-  display.println("Buzz!");
+  printlnRU("Вибрация!");
   display.display(false); // full refresh
   vibMotor();
   showMenu(menuIndex, false);
@@ -515,56 +563,56 @@ void Watchy::setTime() {
       }
     }
 
-    display.fillScreen(GxEPD_BLACK);
-    display.setTextColor(GxEPD_WHITE);
+    display.fillScreen(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
     display.setFont(&DSEG7_Classic_Bold_53);
 
     display.setCursor(5, 80);
     if (setIndex == SET_HOUR) { // blink hour digits
-      display.setTextColor(blink ? GxEPD_WHITE : GxEPD_BLACK);
+      display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
     }
     if (hour < 10) {
       display.print("0");
     }
     display.print(hour);
 
-    display.setTextColor(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
     display.print(":");
 
     display.setCursor(108, 80);
     if (setIndex == SET_MINUTE) { // blink minute digits
-      display.setTextColor(blink ? GxEPD_WHITE : GxEPD_BLACK);
+      display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
     }
     if (minute < 10) {
       display.print("0");
     }
     display.print(minute);
 
-    display.setTextColor(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
 
-    display.setFont(&FreeMonoBold9pt7b);
+    display.setFont(&Cyrillic9pt7b);
     display.setCursor(45, 150);
     if (setIndex == SET_YEAR) { // blink minute digits
-      display.setTextColor(blink ? GxEPD_WHITE : GxEPD_BLACK);
+      display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
     }
     display.print(2000 + year);
 
-    display.setTextColor(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
     display.print("/");
 
     if (setIndex == SET_MONTH) { // blink minute digits
-      display.setTextColor(blink ? GxEPD_WHITE : GxEPD_BLACK);
+      display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
     }
     if (month < 10) {
       display.print("0");
     }
     display.print(month);
 
-    display.setTextColor(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
     display.print("/");
 
     if (setIndex == SET_DAY) { // blink minute digits
-      display.setTextColor(blink ? GxEPD_WHITE : GxEPD_BLACK);
+      display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
     }
     if (day < 10) {
       display.print("0");
@@ -590,11 +638,418 @@ void Watchy::setTime() {
   showMenu(menuIndex, false);
 }
 
+void Watchy::setTimezone() {
+
+  guiState = APP_STATE;
+
+  long offset = gmtOffset;
+  bool save   = false;
+
+  pinMode(DOWN_BTN_PIN, INPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(MENU_BTN_PIN, INPUT);
+  pinMode(BACK_BTN_PIN, INPUT);
+
+  // wait until the MENU press that opened this screen is released,
+  // otherwise it would be read again as "save" on the first iteration
+  while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  display.setFullWindow();
+
+  while (1) {
+
+    if (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+      save = true;
+      break;
+    }
+    if (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+      break;
+    }
+    if (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      offset += 1800;
+      if (offset > 14 * 3600) {
+        offset = -12 * 3600;
+      }
+    }
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+      offset -= 1800;
+      if (offset < -12 * 3600) {
+        offset = 14 * 3600;
+      }
+    }
+
+    display.fillScreen(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
+    display.setFont(&Cyrillic9pt7b);
+
+    display.setCursor(0, 30);
+    printlnRU("Часовой пояс");
+
+    char buf[16];
+    snprintf(buf, sizeof buf, "UTC%c%02ld:%02ld", offset < 0 ? '-' : '+',
+             labs(offset) / 3600, (labs(offset) % 3600) / 60);
+    display.setTextSize(2);
+    display.setCursor(20, 110);
+    display.print(buf);
+    display.setTextSize(1);
+
+    display.setCursor(0, 170);
+    printlnRU("MENU - сохранить");
+    printlnRU("BACK - отмена");
+    display.display(true); // partial refresh
+  }
+
+  if (save && offset != gmtOffset) {
+    RTC.read(currentTime);
+    time_t t = makeTime(currentTime) + (offset - gmtOffset);
+    tmElements_t tm;
+    breakTime(t, tm);
+    RTC.set(tm);
+    gmtOffset = offset;
+    Preferences prefs;
+    prefs.begin("watchy", false);
+    prefs.putLong("gmtOffset", gmtOffset);
+    prefs.end();
+  }
+
+  showMenu(menuIndex, false);
+}
+
+bool Watchy::alarmDue() {
+  int16_t now    = currentTime.Hour * 60 + currentTime.Minute;
+  int16_t target = snoozeAt >= 0 ? snoozeAt
+                 : (alarmEnabled ? alarmHour * 60 + alarmMinute : -1);
+  if (target < 0) {
+    return false;
+  }
+  int16_t late = (now - target + 1440) % 1440; // minutes since target, wraps midnight
+  if (late > ALARM_LATE_MIN) {
+    if (alarmHandled == target) {
+      alarmHandled = -1; // window passed: re-arm for the next day
+    }
+    return false;
+  }
+  return alarmHandled != target;
+}
+
+void Watchy::ringAlarm() {
+  Serial.printf("ALARM ring %02d:%02d\n", currentTime.Hour, currentTime.Minute);
+  // mark the target handled so a later wake inside the late window does not
+  // ring again after a dismiss
+  alarmHandled = snoozeAt >= 0 ? snoozeAt : alarmHour * 60 + alarmMinute;
+  snoozeAt = -1; // current snooze has fired
+
+  display.setFullWindow();
+  display.fillScreen(GxEPD_WHITE);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFont(&Cyrillic9pt7b);
+  display.setCursor(0, 30);
+  printlnRU("Будильник");
+  display.setFont(&DSEG7_Classic_Bold_53);
+  display.setCursor(5, 110);
+  if (currentTime.Hour < 10) {
+    display.print("0");
+  }
+  display.print(currentTime.Hour);
+  display.print(":");
+  if (currentTime.Minute < 10) {
+    display.print("0");
+  }
+  display.print(currentTime.Minute);
+  display.setFont(&Cyrillic9pt7b);
+  display.setCursor(0, 165);
+  printlnRU("Правая - отложить");
+  display.setCursor(0, 190);
+  printlnRU("Обе правые - выкл.");
+  display.display(false); // full refresh
+
+  pinMode(VIB_MOTOR_PIN, OUTPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(DOWN_BTN_PIN, INPUT);
+
+  uint32_t start = millis();
+  bool snooze    = false;
+  bool done      = false;
+  while (!done) {
+    bool motorOn = ((millis() - start) / 1000) % 2 == 0;
+    digitalWrite(VIB_MOTOR_PIN, motorOn);
+
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
+        digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      // wait for release; if both right buttons are ever held together
+      // during the press, dismiss instead of snoozing
+      bool both = false;
+      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
+             digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+        if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW &&
+            digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+          both = true;
+        }
+        delay(10);
+      }
+      snooze = !both;
+      done   = true;
+    }
+    if (millis() - start > ALARM_RING_MAX_MS) {
+      snooze = false;
+      done   = true;
+    }
+    delay(10);
+  }
+  digitalWrite(VIB_MOTOR_PIN, LOW);
+
+  // make sure both right buttons are released so the press does not leak
+  // into the next wake as a button event
+  while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
+         digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  if (snooze) {
+    RTC.read(currentTime);
+    snoozeAt = (currentTime.Hour * 60 + currentTime.Minute + ALARM_SNOOZE_MIN) % 1440;
+    Serial.printf("ALARM snooze -> %d\n", snoozeAt);
+  } else {
+    Serial.println("ALARM off");
+  }
+
+  RTC.read(currentTime);
+  showWatchFace(false); // sets guiState = WATCHFACE_STATE
+}
+
+void Watchy::setAlarm() {
+  guiState = APP_STATE;
+
+  pinMode(DOWN_BTN_PIN, INPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(MENU_BTN_PIN, INPUT);
+  pinMode(BACK_BTN_PIN, INPUT);
+
+  // wait until the MENU press that opened this screen is released
+  while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  uint8_t hour   = alarmHour;
+  uint8_t minute = alarmMinute;
+  bool on        = alarmEnabled;
+  int8_t focus   = SET_ALARM_HOUR;
+  bool dirty     = true;
+
+  auto step = [&]() {
+    switch (focus) {
+    case SET_ALARM_HOUR:
+      hour = (hour + 1) % 24;
+      break;
+    case SET_ALARM_MINUTE:
+      minute = (minute + 1) % 60;
+      break;
+    case SET_ALARM_ON:
+      on = !on;
+      break;
+    }
+  };
+
+  auto draw = [&]() {
+    display.fillScreen(GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
+    display.setFont(&DSEG7_Classic_Bold_53);
+
+    display.setCursor(5, 80);
+    if (hour < 10) {
+      display.print("0");
+    }
+    display.print(hour);
+    display.print(":");
+
+    display.setCursor(108, 80);
+    if (minute < 10) {
+      display.print("0");
+    }
+    display.print(minute);
+
+    if (focus == SET_ALARM_HOUR || focus == SET_ALARM_MINUTE) {
+      int16_t x1, y1;
+      uint16_t w, h;
+      // fixed "00" so the frame does not depend on the current digits
+      display.getTextBounds("00", focus == SET_ALARM_HOUR ? 5 : 108, 80,
+                            &x1, &y1, &w, &h);
+      display.drawRoundRect(x1 - 5, y1 - 5, w + 10, h + 10, 6, GxEPD_BLACK);
+    }
+
+    display.setFont(&Cyrillic9pt7b);
+    display.drawRect(20, 128, 18, 18, GxEPD_BLACK);
+    if (on) {
+      display.drawLine(24, 137, 28, 142, GxEPD_BLACK);
+      display.drawLine(25, 137, 29, 142, GxEPD_BLACK);
+      display.drawLine(28, 142, 35, 131, GxEPD_BLACK);
+      display.drawLine(29, 142, 36, 131, GxEPD_BLACK);
+    }
+    display.setCursor(48, 143);
+    printRU("Включен");
+    if (focus == SET_ALARM_ON) {
+      display.drawRoundRect(12, 120, 150, 34, 6, GxEPD_BLACK);
+    }
+
+    display.setCursor(0, 190);
+    printlnRU("BACK - сохранить");
+    display.display(true); // partial refresh
+  };
+
+  display.setFullWindow();
+
+  while (1) {
+    if (dirty) {
+      draw();
+      dirty = false;
+    }
+
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+      focus = (focus + 2) % 3;
+      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      dirty = true;
+      continue;
+    }
+    if (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      focus = (focus + 1) % 3;
+      while (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      dirty = true;
+      continue;
+    }
+    if (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      alarmHour    = hour;
+      alarmMinute  = minute;
+      alarmEnabled = on;
+      snoozeAt     = -1;
+      alarmHandled = -1;
+      Preferences prefs;
+      prefs.begin("watchy", false);
+      prefs.putUChar("alarmH", alarmHour);
+      prefs.putUChar("alarmM", alarmMinute);
+      prefs.putBool("alarmOn", alarmEnabled);
+      prefs.end();
+      Serial.printf("ALARM set %02d:%02d on=%d\n", alarmHour, alarmMinute,
+                    alarmEnabled);
+      break;
+    }
+    if (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+      uint32_t pressStart = millis();
+      uint32_t stepsDone  = 0;
+      step();
+      stepsDone++;
+      draw();
+      // while held: time-based auto-repeat for hour/minute (a partial
+      // refresh takes ~300-500 ms, longer than ALARM_REPEAT_MS, so count
+      // steps by elapsed time and let the screen catch up)
+      while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+        if (focus != SET_ALARM_ON &&
+            millis() - pressStart >= ALARM_REPEAT_DELAY_MS) {
+          uint32_t due =
+              (millis() - pressStart - ALARM_REPEAT_DELAY_MS) / ALARM_REPEAT_MS + 1;
+          bool stepped = false;
+          while (stepsDone < due) {
+            step();
+            stepsDone++;
+            stepped = true;
+          }
+          if (stepped) {
+            draw();
+          }
+        }
+        delay(10);
+      }
+      continue;
+    }
+    delay(10);
+  }
+
+  showMenu(menuIndex, false);
+}
+
+void Watchy::showFaces() {
+  guiState = APP_STATE;
+
+  pinMode(DOWN_BTN_PIN, INPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(MENU_BTN_PIN, INPUT);
+  pinMode(BACK_BTN_PIN, INPUT);
+
+  // wait until the MENU press that opened this screen is released
+  while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  uint8_t sel = faceIndex;
+  uint8_t n   = faceCount();
+  if (sel >= n) {
+    sel = 0;
+  }
+
+  RTC.read(currentTime);
+  display.setFullWindow();
+
+  while (1) {
+    drawFace(sel);
+    display.display(false); // full refresh
+
+    // wait for a button press
+    while (digitalRead(UP_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(DOWN_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(MENU_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(BACK_BTN_PIN) != ACTIVE_LOW) {
+      delay(10);
+    }
+
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+      sel = (sel + n - 1) % n;
+      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      sel = (sel + 1) % n;
+      while (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      faceIndex = sel;
+      Preferences prefs;
+      prefs.begin("watchy", false);
+      prefs.putUChar("face", faceIndex);
+      prefs.end();
+      break;
+    }
+    if (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      break;
+    }
+  }
+
+  showMenu(menuIndex, false);
+}
+
 void Watchy::showAccelerometer() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
 
   Accel acc;
 
@@ -618,10 +1073,10 @@ void Watchy::showAccelerometer() {
       // Get acceleration data
       bool res          = sensor.getAccel(acc);
       uint8_t direction = sensor.getDirection();
-      display.fillScreen(GxEPD_BLACK);
+      display.fillScreen(GxEPD_WHITE);
       display.setCursor(0, 30);
       if (res == false) {
-        display.println("getAccel FAIL");
+        printlnRU("Ошибка акселерометра");
       } else {
         display.print("  X:");
         display.println(acc.x);
@@ -633,25 +1088,25 @@ void Watchy::showAccelerometer() {
         display.setCursor(30, 130);
         switch (direction) {
         case DIRECTION_DISP_DOWN:
-          display.println("FACE DOWN");
+          printlnRU("ЭКРАНОМ ВНИЗ");
           break;
         case DIRECTION_DISP_UP:
-          display.println("FACE UP");
+          printlnRU("ЭКРАНОМ ВВЕРХ");
           break;
         case DIRECTION_BOTTOM_EDGE:
-          display.println("BOTTOM EDGE");
+          printlnRU("НИЖНИЙ КРАЙ");
           break;
         case DIRECTION_TOP_EDGE:
-          display.println("TOP EDGE");
+          printlnRU("ВЕРХНИЙ КРАЙ");
           break;
         case DIRECTION_RIGHT_EDGE:
-          display.println("RIGHT EDGE");
+          printlnRU("ПРАВЫЙ КРАЙ");
           break;
         case DIRECTION_LEFT_EDGE:
-          display.println("LEFT EDGE");
+          printlnRU("ЛЕВЫЙ КРАЙ");
           break;
         default:
-          display.println("ERROR!!!");
+          printlnRU("ОШИБКА!!!");
           break;
         }
       }
@@ -672,6 +1127,10 @@ void Watchy::showWatchFace(bool partialRefresh) {
 }
 
 void Watchy::drawWatchFace() {
+  drawFace(faceIndex);
+}
+
+void Watchy::drawFace(uint8_t idx) {
   display.setFont(&DSEG7_Classic_Bold_53);
   display.setCursor(5, 53 + 60);
   if (currentTime.Hour < 10) {
@@ -727,8 +1186,7 @@ weatherData Watchy::_getWeatherData(String cityID, String lat, String lon, Strin
 	      currentWeather.external = true;
 		        breakTime((time_t)(int)responseObject["sys"]["sunrise"], currentWeather.sunrise);
 		        breakTime((time_t)(int)responseObject["sys"]["sunset"], currentWeather.sunset);
-        // sync NTP during weather API call and use timezone of lat & lon
-        gmtOffset = int(responseObject["timezone"]);
+        // sync NTP during weather API call using the configured timezone
         syncNTP(gmtOffset);
       } else {
         // http error
@@ -908,24 +1366,312 @@ void Watchy::_bmaConfig() {
   sensor.enableWakeupInterrupt();
 }
 
-void Watchy::setupWifi() {
+void Watchy::loadWifiNetworks() {
+  Preferences prefs;
+  prefs.begin("watchy", true);
+  if (!prefs.isKey("wifiCount")) {
+    prefs.end();
+    wifiCount = 0;
+#ifdef WIFI_SSID
+    // First boot: seed the list from the build flags
+    strlcpy(wifiNets[0].ssid, WIFI_SSID, sizeof(wifiNets[0].ssid));
+    strlcpy(wifiNets[0].pass, WIFI_PASSWD, sizeof(wifiNets[0].pass));
+    wifiCount = 1;
+    saveWifiNetworks();
+#endif
+    return;
+  }
+  wifiCount = prefs.getUChar("wifiCount", 0);
+  if (wifiCount > MAX_WIFI_NETWORKS) {
+    wifiCount = MAX_WIFI_NETWORKS;
+  }
+  char key[12];
+  for (uint8_t i = 0; i < wifiCount; i++) {
+    snprintf(key, sizeof(key), "wifiSsid%u", i);
+    String ssid = prefs.getString(key, "");
+    snprintf(key, sizeof(key), "wifiPass%u", i);
+    String pass = prefs.getString(key, "");
+    strlcpy(wifiNets[i].ssid, ssid.c_str(), sizeof(wifiNets[i].ssid));
+    strlcpy(wifiNets[i].pass, pass.c_str(), sizeof(wifiNets[i].pass));
+  }
+  prefs.end();
+}
+
+void Watchy::saveWifiNetworks() {
+  Preferences prefs;
+  prefs.begin("watchy", false);
+  prefs.putUChar("wifiCount", wifiCount);
+  char key[12];
+  for (uint8_t i = 0; i < MAX_WIFI_NETWORKS; i++) {
+    snprintf(key, sizeof(key), "wifiSsid%u", i);
+    if (i < wifiCount) {
+      prefs.putString(key, wifiNets[i].ssid);
+      snprintf(key, sizeof(key), "wifiPass%u", i);
+      prefs.putString(key, wifiNets[i].pass);
+    } else {
+      prefs.remove(key);
+      snprintf(key, sizeof(key), "wifiPass%u", i);
+      prefs.remove(key);
+    }
+  }
+  prefs.end();
+}
+
+void Watchy::showWifiList() {
+  guiState = APP_STATE;
+
+  loadWifiNetworks();
+
+  pinMode(DOWN_BTN_PIN, INPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(MENU_BTN_PIN, INPUT);
+  pinMode(BACK_BTN_PIN, INPUT);
+
+  // wait until the MENU press that opened this screen is released
+  while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  int8_t sel = 0;
+  bool reorder = false;
+  WifiNet backup[MAX_WIFI_NETWORKS];
+  uint8_t backupCount = 0;
+
+  display.setFullWindow();
+
+  while (1) {
+    uint8_t rows = wifiCount + (wifiCount < MAX_WIFI_NETWORKS ? 1 : 0);
+    if (sel >= rows) {
+      sel = rows - 1;
+    }
+    if (sel < 0) {
+      sel = 0;
+    }
+
+    display.fillScreen(GxEPD_WHITE);
+    display.setFont(&Cyrillic9pt7b);
+    int16_t x1, y1;
+    uint16_t w, h;
+    for (uint8_t i = 0; i < rows; i++) {
+      int16_t yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
+      const char *label = (i < wifiCount) ? wifiNets[i].ssid : "Добавить";
+      display.setCursor(0, yPos);
+      if (i == sel) {
+        display.getTextBounds(label, 0, yPos, &x1, &y1, &w, &h);
+        if (reorder) {
+          display.drawRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
+          display.drawRect(x1, y1 - 9, 198, h + 13, GxEPD_BLACK);
+          display.setTextColor(GxEPD_BLACK);
+        } else {
+          display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
+          display.setTextColor(GxEPD_WHITE);
+        }
+      } else {
+        display.setTextColor(GxEPD_BLACK);
+      }
+      printlnRU(label);
+    }
+    if (reorder) {
+      display.setTextColor(GxEPD_BLACK);
+      display.setCursor(0, 175);
+      printlnRU("BACK - сохранить");
+      display.setCursor(0, 195);
+      printlnRU("MENU - отмена");
+    }
+    display.display(true); // partial refresh
+
+    // wait for a button press
+    while (digitalRead(UP_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(DOWN_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(MENU_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(BACK_BTN_PIN) != ACTIVE_LOW) {
+      delay(10);
+    }
+
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+      if (reorder) {
+        if (sel > 0) {
+          std::swap(wifiNets[sel], wifiNets[sel - 1]);
+          sel--;
+        }
+      } else {
+        sel = (sel - 1 + rows) % rows;
+      }
+      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      if (reorder) {
+        if (sel < wifiCount - 1) {
+          std::swap(wifiNets[sel], wifiNets[sel + 1]);
+          sel++;
+        }
+      } else {
+        sel = (sel + 1) % rows;
+      }
+      while (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      if (reorder) {
+        memcpy(wifiNets, backup, sizeof(backup));
+        wifiCount = backupCount;
+        reorder = false;
+      } else if (sel < wifiCount) {
+        showWifiNetworkMenu(sel);
+      } else {
+        setupWifi(-1);
+      }
+      continue;
+    }
+    if (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+      unsigned long pressStart = millis();
+      bool longPress = false;
+      while (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+        if (millis() - pressStart >= WIFI_LONGPRESS_MS) {
+          longPress = true;
+        }
+        delay(10);
+      }
+      if (reorder) {
+        saveWifiNetworks();
+        reorder = false;
+      } else if (longPress) {
+        if (sel < wifiCount && wifiCount >= 2) {
+          memcpy(backup, wifiNets, sizeof(backup));
+          backupCount = wifiCount;
+          reorder = true;
+        }
+      } else {
+        showMenu(menuIndex, false);
+        return;
+      }
+      continue;
+    }
+  }
+}
+
+void Watchy::showWifiNetworkMenu(uint8_t idx) {
+  guiState = APP_STATE;
+
+  pinMode(DOWN_BTN_PIN, INPUT);
+  pinMode(UP_BTN_PIN, INPUT);
+  pinMode(MENU_BTN_PIN, INPUT);
+  pinMode(BACK_BTN_PIN, INPUT);
+
+  // wait until the MENU press that opened this screen is released
+  while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+    delay(10);
+  }
+
+  const char *items[] = {"Настроить AP", "Удалить"};
+  int8_t sel = 0;
+
+  display.setFullWindow();
+
+  while (1) {
+    display.fillScreen(GxEPD_WHITE);
+    display.setFont(&Cyrillic9pt7b);
+    display.setTextColor(GxEPD_BLACK);
+    display.setCursor(0, MENU_HEIGHT);
+    printlnRU(wifiNets[idx].ssid);
+
+    int16_t x1, y1;
+    uint16_t w, h;
+    for (int i = 0; i < 2; i++) {
+      int16_t yPos = MENU_HEIGHT + (MENU_HEIGHT * (i + 1));
+      display.setCursor(0, yPos);
+      if (i == sel) {
+        display.getTextBounds(items[i], 0, yPos, &x1, &y1, &w, &h);
+        display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
+        display.setTextColor(GxEPD_WHITE);
+      } else {
+        display.setTextColor(GxEPD_BLACK);
+      }
+      printlnRU(items[i]);
+    }
+    display.display(true); // partial refresh
+
+    // wait for a button press
+    while (digitalRead(UP_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(DOWN_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(MENU_BTN_PIN) != ACTIVE_LOW &&
+           digitalRead(BACK_BTN_PIN) != ACTIVE_LOW) {
+      delay(10);
+    }
+
+    if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+      sel = (sel - 1 + 2) % 2;
+      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      sel = (sel + 1) % 2;
+      while (digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      continue;
+    }
+    if (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(BACK_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      return;
+    }
+    if (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+      while (digitalRead(MENU_BTN_PIN) == ACTIVE_LOW) {
+        delay(10);
+      }
+      if (sel == 0) {
+        setupWifi(idx);
+      } else {
+        for (uint8_t i = idx; i + 1 < wifiCount; i++) {
+          wifiNets[i] = wifiNets[i + 1];
+        }
+        wifiCount--;
+        saveWifiNetworks();
+      }
+      return;
+    }
+  }
+}
+
+void Watchy::setupWifi(int8_t slot) {
   display.epd2.setBusyCallback(0); // temporarily disable lightsleep on busy
   WiFiManager wifiManager;
   wifiManager.resetSettings();
   wifiManager.setTimeout(WIFI_AP_TIMEOUT);
   wifiManager.setAPCallback(_configModeCallback);
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   if (!wifiManager.autoConnect(WIFI_AP_SSID)) { // WiFi setup failed
-    display.println("Setup failed &");
-    display.println("timed out!");
+    printlnRU("Ошибка настройки,");
+    printlnRU("таймаут!");
   } else {
-    display.println("Connected to:");
+    printlnRU("Подключено к:");
     display.println(WiFi.SSID());
-		display.println("Local IP:");
+		printlnRU("Локальный IP:");
 		display.println(WiFi.localIP());
+    if (slot >= 0) {
+      strlcpy(wifiNets[slot].ssid, WiFi.SSID().c_str(), sizeof(wifiNets[slot].ssid));
+      strlcpy(wifiNets[slot].pass, WiFi.psk().c_str(), sizeof(wifiNets[slot].pass));
+    } else {
+      strlcpy(wifiNets[wifiCount].ssid, WiFi.SSID().c_str(), sizeof(wifiNets[wifiCount].ssid));
+      strlcpy(wifiNets[wifiCount].pass, WiFi.psk().c_str(), sizeof(wifiNets[wifiCount].pass));
+      wifiCount++;
+    }
+    saveWifiNetworks();
     weatherIntervalCounter = -1; // Reset to force weather to be read again
     lastIPAddress = WiFi.localIP();
     WiFi.SSID().toCharArray(lastSSID, 30);
@@ -936,51 +1682,82 @@ void Watchy::setupWifi() {
   btStop();
   // enable lightsleep on busy
   display.epd2.setBusyCallback(WatchyDisplay::busyCallback);
-  guiState = APP_STATE;
+  delay(3000);
 }
 
 void Watchy::_configModeCallback(WiFiManager *myWiFiManager) {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  display.println("Connect to");
+  printlnRU("Подключитесь к");
   display.print("SSID: ");
   display.println(WIFI_AP_SSID);
   display.print("IP: ");
   display.println(WiFi.softAPIP());
-	display.println("MAC address:");
+	printlnRU("MAC-адрес:");
 	display.println(WiFi.softAPmacAddress().c_str());
   display.display(false); // full refresh
 }
 
 bool Watchy::connectWiFi() {
-  if (WL_CONNECT_FAILED ==
-      WiFi.begin()) { // WiFi not setup, you can also use hard coded credentials
-                      // with WiFi.begin(SSID,PASS);
+  loadWifiNetworks();
+  if (wifiCount == 0) {
+    Serial.println("WIFI: no networks");
     WIFI_CONFIGURED = false;
-  } else {
-    if (WL_CONNECTED ==
-        WiFi.waitForConnectResult()) { // attempt to connect for 10s
-      lastIPAddress = WiFi.localIP();
-      WiFi.SSID().toCharArray(lastSSID, 30);
-      WIFI_CONFIGURED = true;
-    } else { // connection failed, time out
-      WIFI_CONFIGURED = false;
-      // turn off radios
-      WiFi.mode(WIFI_OFF);
-      btStop();
-    }
+    return false;
   }
-  return WIFI_CONFIGURED;
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  int n = WiFi.scanNetworks();
+  for (uint8_t i = 0; i < wifiCount; i++) {
+    bool found = false;
+    for (int j = 0; j < n; j++) {
+      if (WiFi.SSID(j) == wifiNets[i].ssid) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      Serial.printf("WIFI: '%s' not in range\n", wifiNets[i].ssid);
+      continue;
+    }
+    Serial.printf("WIFI: connecting to '%s' ...\n", wifiNets[i].ssid);
+    WiFi.begin(wifiNets[i].ssid, wifiNets[i].pass);
+    if (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
+      Serial.printf("WIFI: connect to '%s' failed, status=%d\n",
+                    wifiNets[i].ssid, (int)WiFi.status());
+      WiFi.disconnect();
+      continue;
+    }
+    IPAddress ip;
+    if (!WiFi.hostByName(settings.ntpServer.c_str(), ip)) {
+      Serial.printf("WIFI: '%s' has no internet\n", wifiNets[i].ssid);
+      WiFi.disconnect();
+      continue;
+    }
+    lastIPAddress = WiFi.localIP();
+    WiFi.SSID().toCharArray(lastSSID, 30);
+    WIFI_CONFIGURED = true;
+    Serial.printf("WIFI: connected, IP=%s\n",
+                  WiFi.localIP().toString().c_str());
+    WiFi.scanDelete();
+    return true;
+  }
+  WiFi.scanDelete();
+  WIFI_CONFIGURED = false;
+  // turn off radios
+  WiFi.mode(WIFI_OFF);
+  btStop();
+  return false;
 }
 /*
 void Watchy::showUpdateFW() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
   display.println("Please visit");
   display.println("watchy.sqfmi.com");
@@ -998,16 +1775,16 @@ void Watchy::showUpdateFW() {
 
 void Watchy::updateFWBegin() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  display.println("Bluetooth Started");
+  printlnRU("Bluetooth запущен");
   display.println(" ");
   display.println("Watchy BLE OTA");
   display.println(" ");
-  display.println("Waiting for");
-  display.println("connection...");
+  printlnRU("Ожидание");
+  printlnRU("подключения...");
   display.display(false); // full refresh
 
   BLE BT;
@@ -1020,24 +1797,24 @@ void Watchy::updateFWBegin() {
     if (prevStatus != currentStatus || prevStatus == 1) {
       if (currentStatus == 0) {
         display.setFullWindow();
-        display.fillScreen(GxEPD_BLACK);
-        display.setFont(&FreeMonoBold9pt7b);
-        display.setTextColor(GxEPD_WHITE);
+        display.fillScreen(GxEPD_WHITE);
+        display.setFont(&Cyrillic9pt7b);
+        display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        display.println("BLE Connected!");
+        printlnRU("BLE подключен!");
         display.println(" ");
-        display.println("Waiting for");
-        display.println("upload...");
+        printlnRU("Ожидание");
+        printlnRU("загрузка...");
         display.display(false); // full refresh
       }
       if (currentStatus == 1) {
         display.setFullWindow();
-        display.fillScreen(GxEPD_BLACK);
-        display.setFont(&FreeMonoBold9pt7b);
-        display.setTextColor(GxEPD_WHITE);
+        display.fillScreen(GxEPD_WHITE);
+        display.setFont(&Cyrillic9pt7b);
+        display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        display.println("Downloading");
-        display.println("firmware:");
+        printlnRU("Загрузка");
+        printlnRU("прошивки:");
         display.println(" ");
         display.print(BT.howManyBytes());
         display.println(" bytes");
@@ -1045,14 +1822,14 @@ void Watchy::updateFWBegin() {
       }
       if (currentStatus == 2) {
         display.setFullWindow();
-        display.fillScreen(GxEPD_BLACK);
-        display.setFont(&FreeMonoBold9pt7b);
-        display.setTextColor(GxEPD_WHITE);
+        display.fillScreen(GxEPD_WHITE);
+        display.setFont(&Cyrillic9pt7b);
+        display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        display.println("Download");
-        display.println("completed!");
+        printlnRU("Загрузка");
+        printlnRU("завершена!");
         display.println(" ");
-        display.println("Rebooting...");
+        printlnRU("Перезагрузка...");
         display.display(false); // full refresh
 
         delay(2000);
@@ -1060,13 +1837,13 @@ void Watchy::updateFWBegin() {
       }
       if (currentStatus == 4) {
         display.setFullWindow();
-        display.fillScreen(GxEPD_BLACK);
-        display.setFont(&FreeMonoBold9pt7b);
-        display.setTextColor(GxEPD_WHITE);
+        display.fillScreen(GxEPD_WHITE);
+        display.setFont(&Cyrillic9pt7b);
+        display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        display.println("BLE Disconnected!");
+        printlnRU("BLE отключен!");
         display.println(" ");
-        display.println("exiting...");
+        printlnRU("выход...");
         display.display(false); // full refresh
         delay(1000);
         break;
@@ -1084,18 +1861,18 @@ void Watchy::updateFWBegin() {
 */
 void Watchy::showSyncNTP() {
   display.setFullWindow();
-  display.fillScreen(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setTextColor(GxEPD_WHITE);
+  display.fillScreen(GxEPD_WHITE);
+  display.setFont(&Cyrillic9pt7b);
+  display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  display.println("Syncing NTP... ");
-  display.print("GMT offset: ");
+  printlnRU("Синхронизация NTP... ");
+  printRU("Смещение GMT: ");
   display.println(gmtOffset);
   display.display(false); // full refresh
   if (connectWiFi()) {
     if (syncNTP()) {
-      display.println("NTP Sync Success\n");
-      display.println("Current Time Is:");
+      printlnRU("NTP: успешно\n");
+      printlnRU("Текущее время:");
 
       RTC.read(currentTime);
 
@@ -1116,12 +1893,12 @@ void Watchy::showSyncNTP() {
       }
       display.println(currentTime.Minute);
     } else {
-      display.println("NTP Sync Failed");
+      printlnRU("NTP: ошибка");
     }
     WiFi.mode(WIFI_OFF);
     btStop();
   } else {
-    display.println("WiFi Not Configured");
+    printlnRU("Wi-Fi не настроен");
   }
   display.display(true); // full refresh
   delay(3000);

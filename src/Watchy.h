@@ -9,7 +9,7 @@
 #include <Arduino_JSON.h>
 #include <GxEPD2_BW.h>
 #include <Wire.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
+#include "Cyrillic9pt7b.h"
 #include "DSEG7_Classic_Bold_53.h"
 #include "Display.h"
 #include "BLE.h"
@@ -62,6 +62,11 @@ typedef struct watchySettings {
   bool vibrateOClock;
 } watchySettings;
 
+struct WifiNet {
+  char ssid[33];
+  char pass[65];
+};
+
 class Watchy {
 public:
   #ifdef ARDUINO_ESP32S3_DEV
@@ -93,7 +98,17 @@ public:
   bool syncNTP(long gmt);
   bool syncNTP(long gmt, String ntpServer);
   void setTime();
-  void setupWifi();
+  void setTimezone();
+  void setAlarm();
+  bool alarmDue();
+  void ringAlarm();
+  WifiNet wifiNets[MAX_WIFI_NETWORKS];
+  uint8_t wifiCount = 0;
+  void loadWifiNetworks();
+  void saveWifiNetworks();
+  void showWifiList();
+  void showWifiNetworkMenu(uint8_t idx);
+  void setupWifi(int8_t slot);
   bool connectWiFi();
   weatherData getWeatherData();
   void updateFWBegin();
@@ -101,6 +116,9 @@ public:
   void showWatchFace(bool partialRefresh);
   virtual void drawWatchFace(); // override this method for different watch
                                 // faces
+  virtual uint8_t faceCount() { return 1; }
+  virtual void drawFace(uint8_t idx);
+  void showFaces();
 
 private:
   void _bmaConfig();
@@ -119,5 +137,44 @@ extern RTC_DATA_ATTR BMA423 sensor;
 extern RTC_DATA_ATTR bool WIFI_CONFIGURED;
 extern RTC_DATA_ATTR bool BLE_CONFIGURED;
 extern RTC_DATA_ATTR bool USB_PLUGGED_IN;
+extern RTC_DATA_ATTR uint8_t faceIndex;
+extern RTC_DATA_ATTR uint8_t alarmHour;
+extern RTC_DATA_ATTR uint8_t alarmMinute;
+extern RTC_DATA_ATTR bool alarmEnabled;
+extern RTC_DATA_ATTR int16_t snoozeAt; // minute of day, -1 = none
+extern RTC_DATA_ATTR int16_t alarmHandled; // target minute that already rang (or was snoozed/dismissed)
+
+// --- Cyrillic text helpers ---
+// Cyrillic9pt7b stores Cyrillic glyphs as single-byte codes 0x80..0xC1 so the
+// standard (uint8_t) drawChar can reach them. These helpers decode UTF-8 and
+// map Russian letters to those codes; ASCII passes through unchanged.
+static inline uint8_t ruCpToByte(uint16_t cp) {
+    if (cp >= 0x410 && cp <= 0x42F) return 0x80 + (cp - 0x410); // А-Я
+    if (cp >= 0x430 && cp <= 0x44F) return 0xA0 + (cp - 0x430); // а-я
+    if (cp == 0x401) return 0xC0; // Ё
+    if (cp == 0x451) return 0xC1; // ё
+    return '?';
+}
+
+static inline void printRU(const char *s) {
+    while (*s) {
+        uint8_t c = (uint8_t)*s;
+        if (c < 0x80) {
+            Watchy::display.write(c);
+            s++;
+        } else if ((c & 0xE0) == 0xC0 && (s[1] & 0xC0) == 0x80) {
+            uint16_t cp = ((uint16_t)(c & 0x1F) << 6) | (s[1] & 0x3F);
+            s += 2;
+            Watchy::display.write(ruCpToByte(cp));
+        } else {
+            s++; // skip malformed byte
+        }
+    }
+}
+
+static inline void printlnRU(const char *s) {
+    printRU(s);
+    Watchy::display.write('\n');
+}
 
 #endif
