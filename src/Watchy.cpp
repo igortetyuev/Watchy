@@ -337,16 +337,16 @@ void Watchy::handleButtonPress() {
 void Watchy::showMenu(byte menuIndex, bool partialRefresh) {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
 
   int16_t x1, y1;
   uint16_t w, h;
   int16_t yPos;
 
   const char *menuItems[] = {
-      "О часах", "Вибрация", "Акселерометр",
-      "Время",   "Настройка Wi-Fi", /*"Обновление",*/
-      "Синхр. времени", "Часовой пояс", "Циферблат", "Будильник"};
+      STR[S_MENU_ABOUT], STR[S_MENU_VIBRATE], STR[S_MENU_ACCEL],
+      STR[S_MENU_SET_TIME], STR[S_MENU_WIFI],
+      STR[S_MENU_NTP], STR[S_MENU_TIMEZONE], STR[S_MENU_FACE], STR[S_MENU_ALARM]};
   for (int i = 0; i < MENU_LENGTH; i++) {
     yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
     display.setCursor(0, yPos);
@@ -354,10 +354,10 @@ void Watchy::showMenu(byte menuIndex, bool partialRefresh) {
       display.getTextBounds(menuItems[i], 0, yPos, &x1, &y1, &w, &h);
       display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
       display.setTextColor(GxEPD_WHITE);
-      printlnRU(menuItems[i]);
+      printlnL(menuItems[i]);
     } else {
       display.setTextColor(GxEPD_BLACK);
-      printlnRU(menuItems[i]);
+      printlnL(menuItems[i]);
     }
   }
 
@@ -370,16 +370,16 @@ void Watchy::showMenu(byte menuIndex, bool partialRefresh) {
 void Watchy::showFastMenu(byte menuIndex) {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
 
   int16_t x1, y1;
   uint16_t w, h;
   int16_t yPos;
 
   const char *menuItems[] = {
-      "О часах", "Вибрация", "Акселерометр",
-      "Время",   "Настройка Wi-Fi", /*"Обновление",*/
-      "Синхр. времени", "Часовой пояс", "Циферблат", "Будильник"};
+      STR[S_MENU_ABOUT], STR[S_MENU_VIBRATE], STR[S_MENU_ACCEL],
+      STR[S_MENU_SET_TIME], STR[S_MENU_WIFI],
+      STR[S_MENU_NTP], STR[S_MENU_TIMEZONE], STR[S_MENU_FACE], STR[S_MENU_ALARM]};
   for (int i = 0; i < MENU_LENGTH; i++) {
     yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
     display.setCursor(0, yPos);
@@ -387,10 +387,10 @@ void Watchy::showFastMenu(byte menuIndex) {
       display.getTextBounds(menuItems[i], 0, yPos, &x1, &y1, &w, &h);
       display.fillRect(x1 - 1, y1 - 10, 200, h + 15, GxEPD_BLACK);
       display.setTextColor(GxEPD_WHITE);
-      printlnRU(menuItems[i]);
+      printlnL(menuItems[i]);
     } else {
       display.setTextColor(GxEPD_BLACK);
-      printlnRU(menuItems[i]);
+      printlnL(menuItems[i]);
     }
   }
 
@@ -402,23 +402,23 @@ void Watchy::showFastMenu(byte menuIndex) {
 void Watchy::showAbout() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 20);
 
-  printRU("Версия: ");
+  printL(S_ABOUT_VERSION);
   display.println(WATCHY_LIB_VER);
 
-  printRU("Ревизия: v");
+  printL(S_ABOUT_REVISION);
   display.println(getBoardRevision());
 
-  printRU("Батарея: ");
+  printL(S_ABOUT_BATTERY);
   float voltage = getBatteryVoltage();
   display.print(voltage);
   display.println("V");
 
   #ifndef ARDUINO_ESP32S3_DEV
-  printRU("Аптайм: ");
+  printL(S_ABOUT_UPTIME);
   RTC.read(currentTime);
   time_t b = makeTime(bootTime);
   time_t c = makeTime(currentTime);
@@ -428,11 +428,11 @@ void Watchy::showAbout() {
   int hours = (totalSeconds % 86400) / 3600;
   int days = (totalSeconds % (86400 * 30)) / 86400; 
   display.print(days);
-  printRU("д");
+  printL(S_UNIT_DAYS);
   display.print(hours);
-  printRU("ч");
+  printL(S_UNIT_HOURS);
   display.print(minutes);
-  printlnRU("м");  
+  printlnL(S_UNIT_MINUTES);
   #endif
   
   if(WIFI_CONFIGURED){
@@ -441,7 +441,7 @@ void Watchy::showAbout() {
     display.print("IP: ");
     display.println(IPAddress(lastIPAddress).toString());
   }else{
-    printlnRU("Wi-Fi не подключен");
+    printlnL(S_WIFI_NOT_CONNECTED);
   }
   display.display(false); // full refresh
 
@@ -451,10 +451,10 @@ void Watchy::showAbout() {
 void Watchy::showBuzz() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(70, 80);
-  printlnRU("Вибрация!");
+  printlnL(S_BUZZ);
   display.display(false); // full refresh
   vibMotor();
   showMenu(menuIndex, false);
@@ -590,7 +590,7 @@ void Watchy::setTime() {
 
     display.setTextColor(GxEPD_BLACK);
 
-    display.setFont(&Cyrillic9pt7b);
+    display.setFont(&LANG_FONT);
     display.setCursor(45, 150);
     if (setIndex == SET_YEAR) { // blink minute digits
       display.setTextColor(blink ? GxEPD_BLACK : GxEPD_WHITE);
@@ -682,10 +682,10 @@ void Watchy::setTimezone() {
 
     display.fillScreen(GxEPD_WHITE);
     display.setTextColor(GxEPD_BLACK);
-    display.setFont(&Cyrillic9pt7b);
+    display.setFont(&LANG_FONT);
 
     display.setCursor(0, 30);
-    printlnRU("Часовой пояс");
+    printlnL(S_TZ_TITLE);
 
     char buf[16];
     snprintf(buf, sizeof buf, "UTC%c%02ld:%02ld", offset < 0 ? '-' : '+',
@@ -696,8 +696,8 @@ void Watchy::setTimezone() {
     display.setTextSize(1);
 
     display.setCursor(0, 170);
-    printlnRU("MENU - сохранить");
-    printlnRU("BACK - отмена");
+    printlnL(S_HINT_MENU_SAVE);
+    printlnL(S_HINT_BACK_CANCEL);
     display.display(true); // partial refresh
   }
 
@@ -744,9 +744,9 @@ void Watchy::ringAlarm() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
   display.setTextColor(GxEPD_BLACK);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setCursor(0, 30);
-  printlnRU("Будильник");
+  printlnL(S_ALARM_TITLE);
   display.setFont(&DSEG7_Classic_Bold_53);
   display.setCursor(5, 110);
   if (currentTime.Hour < 10) {
@@ -758,11 +758,11 @@ void Watchy::ringAlarm() {
     display.print("0");
   }
   display.print(currentTime.Minute);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setCursor(0, 165);
-  printlnRU("Правая - отложить");
+  printlnL(S_ALARM_HINT_SNOOZE);
   display.setCursor(0, 190);
-  printlnRU("Обе правые - выкл.");
+  printlnL(S_ALARM_HINT_OFF);
   display.display(false); // full refresh
 
   pinMode(VIB_MOTOR_PIN, OUTPUT);
@@ -879,7 +879,7 @@ void Watchy::setAlarm() {
       display.drawRoundRect(x1 - 5, y1 - 5, w + 10, h + 10, 6, GxEPD_BLACK);
     }
 
-    display.setFont(&Cyrillic9pt7b);
+    display.setFont(&LANG_FONT);
     display.drawRect(20, 128, 18, 18, GxEPD_BLACK);
     if (on) {
       display.drawLine(24, 137, 28, 142, GxEPD_BLACK);
@@ -888,13 +888,13 @@ void Watchy::setAlarm() {
       display.drawLine(29, 142, 36, 131, GxEPD_BLACK);
     }
     display.setCursor(48, 143);
-    printRU("Включен");
+    printL(S_ALARM_ENABLED);
     if (focus == SET_ALARM_ON) {
       display.drawRoundRect(12, 120, 150, 34, 6, GxEPD_BLACK);
     }
 
     display.setCursor(0, 190);
-    printlnRU("BACK - сохранить");
+    printlnL(S_HINT_BACK_SAVE);
     display.display(true); // partial refresh
   };
 
@@ -1048,7 +1048,7 @@ void Watchy::showFaces() {
 void Watchy::showAccelerometer() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
 
   Accel acc;
@@ -1076,7 +1076,7 @@ void Watchy::showAccelerometer() {
       display.fillScreen(GxEPD_WHITE);
       display.setCursor(0, 30);
       if (res == false) {
-        printlnRU("Ошибка акселерометра");
+        printlnL(S_ACCEL_ERROR);
       } else {
         display.print("  X:");
         display.println(acc.x);
@@ -1088,25 +1088,25 @@ void Watchy::showAccelerometer() {
         display.setCursor(30, 130);
         switch (direction) {
         case DIRECTION_DISP_DOWN:
-          printlnRU("ЭКРАНОМ ВНИЗ");
+          printlnL(S_DIR_DISP_DOWN);
           break;
         case DIRECTION_DISP_UP:
-          printlnRU("ЭКРАНОМ ВВЕРХ");
+          printlnL(S_DIR_DISP_UP);
           break;
         case DIRECTION_BOTTOM_EDGE:
-          printlnRU("НИЖНИЙ КРАЙ");
+          printlnL(S_DIR_BOTTOM);
           break;
         case DIRECTION_TOP_EDGE:
-          printlnRU("ВЕРХНИЙ КРАЙ");
+          printlnL(S_DIR_TOP);
           break;
         case DIRECTION_RIGHT_EDGE:
-          printlnRU("ПРАВЫЙ КРАЙ");
+          printlnL(S_DIR_RIGHT);
           break;
         case DIRECTION_LEFT_EDGE:
-          printlnRU("ЛЕВЫЙ КРАЙ");
+          printlnL(S_DIR_LEFT);
           break;
         default:
-          printlnRU("ОШИБКА!!!");
+          printlnL(S_DIR_ERROR);
           break;
         }
       }
@@ -1449,12 +1449,12 @@ void Watchy::showWifiList() {
     }
 
     display.fillScreen(GxEPD_WHITE);
-    display.setFont(&Cyrillic9pt7b);
+    display.setFont(&LANG_FONT);
     int16_t x1, y1;
     uint16_t w, h;
     for (uint8_t i = 0; i < rows; i++) {
       int16_t yPos = MENU_HEIGHT + (MENU_HEIGHT * i);
-      const char *label = (i < wifiCount) ? wifiNets[i].ssid : "Добавить";
+      const char *label = (i < wifiCount) ? wifiNets[i].ssid : STR[S_WIFI_ADD];
       display.setCursor(0, yPos);
       if (i == sel) {
         display.getTextBounds(label, 0, yPos, &x1, &y1, &w, &h);
@@ -1469,14 +1469,14 @@ void Watchy::showWifiList() {
       } else {
         display.setTextColor(GxEPD_BLACK);
       }
-      printlnRU(label);
+      printlnL(label);
     }
     if (reorder) {
       display.setTextColor(GxEPD_BLACK);
       display.setCursor(0, 175);
-      printlnRU("BACK - сохранить");
+      printlnL(S_HINT_BACK_SAVE);
       display.setCursor(0, 195);
-      printlnRU("MENU - отмена");
+      printlnL(S_HINT_MENU_CANCEL);
     }
     display.display(true); // partial refresh
 
@@ -1571,17 +1571,17 @@ void Watchy::showWifiNetworkMenu(uint8_t idx) {
     delay(10);
   }
 
-  const char *items[] = {"Настроить AP", "Удалить"};
+  const char *items[] = {STR[S_WIFI_SETUP_AP], STR[S_WIFI_DELETE]};
   int8_t sel = 0;
 
   display.setFullWindow();
 
   while (1) {
     display.fillScreen(GxEPD_WHITE);
-    display.setFont(&Cyrillic9pt7b);
+    display.setFont(&LANG_FONT);
     display.setTextColor(GxEPD_BLACK);
     display.setCursor(0, MENU_HEIGHT);
-    printlnRU(wifiNets[idx].ssid);
+    printlnL(wifiNets[idx].ssid);
 
     int16_t x1, y1;
     uint16_t w, h;
@@ -1595,7 +1595,7 @@ void Watchy::showWifiNetworkMenu(uint8_t idx) {
       } else {
         display.setTextColor(GxEPD_BLACK);
       }
-      printlnRU(items[i]);
+      printlnL(items[i]);
     }
     display.display(true); // partial refresh
 
@@ -1653,15 +1653,15 @@ void Watchy::setupWifi(int8_t slot) {
   wifiManager.setAPCallback(_configModeCallback);
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   if (!wifiManager.autoConnect(WIFI_AP_SSID)) { // WiFi setup failed
-    printlnRU("Ошибка настройки,");
-    printlnRU("таймаут!");
+    printlnL(S_WIFI_SETUP_FAILED_1);
+    printlnL(S_WIFI_SETUP_FAILED_2);
   } else {
-    printlnRU("Подключено к:");
+    printlnL(S_WIFI_CONNECTED_TO);
     display.println(WiFi.SSID());
-		printlnRU("Локальный IP:");
+		printlnL(S_WIFI_LOCAL_IP);
 		display.println(WiFi.localIP());
     if (slot >= 0) {
       strlcpy(wifiNets[slot].ssid, WiFi.SSID().c_str(), sizeof(wifiNets[slot].ssid));
@@ -1688,15 +1688,15 @@ void Watchy::setupWifi(int8_t slot) {
 void Watchy::_configModeCallback(WiFiManager *myWiFiManager) {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  printlnRU("Подключитесь к");
+  printlnL(S_WIFI_CONNECT_TO);
   display.print("SSID: ");
   display.println(WIFI_AP_SSID);
   display.print("IP: ");
   display.println(WiFi.softAPIP());
-	printlnRU("MAC-адрес:");
+	printlnL(S_WIFI_MAC);
 	display.println(WiFi.softAPmacAddress().c_str());
   display.display(false); // full refresh
 }
@@ -1756,7 +1756,7 @@ bool Watchy::connectWiFi() {
 void Watchy::showUpdateFW() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
   display.println("Please visit");
@@ -1776,15 +1776,15 @@ void Watchy::showUpdateFW() {
 void Watchy::updateFWBegin() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  printlnRU("Bluetooth запущен");
+  printlnL(S_BLE_STARTED);
   display.println(" ");
   display.println("Watchy BLE OTA");
   display.println(" ");
-  printlnRU("Ожидание");
-  printlnRU("подключения...");
+  printlnL(S_BLE_WAITING);
+  printlnL(S_BLE_CONNECTION);
   display.display(false); // full refresh
 
   BLE BT;
@@ -1798,23 +1798,23 @@ void Watchy::updateFWBegin() {
       if (currentStatus == 0) {
         display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);
-        display.setFont(&Cyrillic9pt7b);
+        display.setFont(&LANG_FONT);
         display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        printlnRU("BLE подключен!");
+        printlnL(S_BLE_CONNECTED);
         display.println(" ");
-        printlnRU("Ожидание");
-        printlnRU("загрузка...");
+        printlnL(S_BLE_WAITING);
+        printlnL(S_BLE_DOWNLOAD);
         display.display(false); // full refresh
       }
       if (currentStatus == 1) {
         display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);
-        display.setFont(&Cyrillic9pt7b);
+        display.setFont(&LANG_FONT);
         display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        printlnRU("Загрузка");
-        printlnRU("прошивки:");
+        printlnL(S_FW_DOWNLOADING_1);
+        printlnL(S_FW_DOWNLOADING_2);
         display.println(" ");
         display.print(BT.howManyBytes());
         display.println(" bytes");
@@ -1823,13 +1823,13 @@ void Watchy::updateFWBegin() {
       if (currentStatus == 2) {
         display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);
-        display.setFont(&Cyrillic9pt7b);
+        display.setFont(&LANG_FONT);
         display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        printlnRU("Загрузка");
-        printlnRU("завершена!");
+        printlnL(S_FW_DONE_1);
+        printlnL(S_FW_DONE_2);
         display.println(" ");
-        printlnRU("Перезагрузка...");
+        printlnL(S_FW_REBOOTING);
         display.display(false); // full refresh
 
         delay(2000);
@@ -1838,12 +1838,12 @@ void Watchy::updateFWBegin() {
       if (currentStatus == 4) {
         display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);
-        display.setFont(&Cyrillic9pt7b);
+        display.setFont(&LANG_FONT);
         display.setTextColor(GxEPD_BLACK);
         display.setCursor(0, 30);
-        printlnRU("BLE отключен!");
+        printlnL(S_BLE_DISCONNECTED);
         display.println(" ");
-        printlnRU("выход...");
+        printlnL(S_FW_EXITING);
         display.display(false); // full refresh
         delay(1000);
         break;
@@ -1862,17 +1862,17 @@ void Watchy::updateFWBegin() {
 void Watchy::showSyncNTP() {
   display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  display.setFont(&Cyrillic9pt7b);
+  display.setFont(&LANG_FONT);
   display.setTextColor(GxEPD_BLACK);
   display.setCursor(0, 30);
-  printlnRU("Синхронизация NTP... ");
-  printRU("Смещение GMT: ");
+  printlnL(S_NTP_SYNCING);
+  printL(S_NTP_GMT_OFFSET);
   display.println(gmtOffset);
   display.display(false); // full refresh
   if (connectWiFi()) {
     if (syncNTP()) {
-      printlnRU("NTP: успешно\n");
-      printlnRU("Текущее время:");
+      printlnL(S_NTP_OK);
+      printlnL(S_NTP_CURRENT_TIME);
 
       RTC.read(currentTime);
 
@@ -1893,12 +1893,12 @@ void Watchy::showSyncNTP() {
       }
       display.println(currentTime.Minute);
     } else {
-      printlnRU("NTP: ошибка");
+      printlnL(S_NTP_FAILED);
     }
     WiFi.mode(WIFI_OFF);
     btStop();
   } else {
-    printlnRU("Wi-Fi не настроен");
+    printlnL(S_WIFI_NOT_CONFIGURED);
   }
   display.display(true); // full refresh
   delay(3000);

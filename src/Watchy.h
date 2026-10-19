@@ -9,7 +9,14 @@
 #include <Arduino_JSON.h>
 #include <GxEPD2_BW.h>
 #include <Wire.h>
-#include "Cyrillic9pt7b.h"
+#include "lang_strings.h"
+#if defined(LANG_CHARSET_CYRILLIC)
+  #include "Cyrillic9pt7b.h"
+  #define LANG_FONT Cyrillic9pt7b
+#else
+  #include "Latin9pt7b.h"
+  #define LANG_FONT Latin9pt7b
+#endif
 #include "DSEG7_Classic_Bold_53.h"
 #include "Display.h"
 #include "BLE.h"
@@ -144,19 +151,26 @@ extern RTC_DATA_ATTR bool alarmEnabled;
 extern RTC_DATA_ATTR int16_t snoozeAt; // minute of day, -1 = none
 extern RTC_DATA_ATTR int16_t alarmHandled; // target minute that already rang (or was snoozed/dismissed)
 
-// --- Cyrillic text helpers ---
-// Cyrillic9pt7b stores Cyrillic glyphs as single-byte codes 0x80..0xC1 so the
-// standard (uint8_t) drawChar can reach them. These helpers decode UTF-8 and
-// map Russian letters to those codes; ASCII passes through unchanged.
-static inline uint8_t ruCpToByte(uint16_t cp) {
-    if (cp >= 0x410 && cp <= 0x42F) return 0x80 + (cp - 0x410); // А-Я
-    if (cp >= 0x430 && cp <= 0x44F) return 0xA0 + (cp - 0x430); // а-я
-    if (cp == 0x401) return 0xC0; // Ё
-    if (cp == 0x451) return 0xC1; // ё
+// --- Localized text helpers ---
+// The active font stores non-ASCII glyphs as single-byte codes so the
+// standard (uint8_t) drawChar can reach them. These helpers decode UTF-8
+// and map codepoints to the active font's codes; ASCII passes through
+// unchanged. STR[] / StrId come from the generated lang_strings.h.
+static inline uint8_t langCpToByte(uint16_t cp) {
+#if defined(LANG_CHARSET_CYRILLIC)
+    // Cyrillic9pt7b keeps Cyrillic letters at codes 0x80..0xC1
+    if (cp >= 0x410 && cp <= 0x42F) return 0x80 + (cp - 0x410);
+    if (cp >= 0x430 && cp <= 0x44F) return 0xA0 + (cp - 0x430);
+    if (cp == 0x401) return 0xC0;
+    if (cp == 0x451) return 0xC1;
     return '?';
+#else
+    // Latin9pt7b covers ISO-8859-1 directly
+    return cp <= 0xFF ? (uint8_t)cp : '?';
+#endif
 }
 
-static inline void printRU(const char *s) {
+static inline void printL(const char *s) {
     while (*s) {
         uint8_t c = (uint8_t)*s;
         if (c < 0x80) {
@@ -165,16 +179,24 @@ static inline void printRU(const char *s) {
         } else if ((c & 0xE0) == 0xC0 && (s[1] & 0xC0) == 0x80) {
             uint16_t cp = ((uint16_t)(c & 0x1F) << 6) | (s[1] & 0x3F);
             s += 2;
-            Watchy::display.write(ruCpToByte(cp));
+            Watchy::display.write(langCpToByte(cp));
         } else {
             s++; // skip malformed byte
         }
     }
 }
 
-static inline void printlnRU(const char *s) {
-    printRU(s);
+static inline void printL(StrId id) {
+    printL(STR[id]);
+}
+
+static inline void printlnL(const char *s) {
+    printL(s);
     Watchy::display.write('\n');
+}
+
+static inline void printlnL(StrId id) {
+    printlnL(STR[id]);
 }
 
 #endif
