@@ -114,7 +114,10 @@
 #define ALARM_SNOOZE_MIN      10
 #define ALARM_REPEAT_DELAY_MS 2000   // hold MENU this long before auto-repeat
 #define ALARM_REPEAT_MS       200    // auto-repeat period (5 Hz)
-#define ALARM_RING_MAX_MS     300000 // give up ringing after 5 min (battery)
+#ifndef ALARM_RING_MIN
+#define ALARM_RING_MIN        5      // give up ringing after this many minutes (battery)
+#endif
+#define ALARM_RING_MAX_MS     (ALARM_RING_MIN * 60000UL)
 #define ALARM_LATE_MIN        5      // fire up to this many minutes after the target if a wake was missed
 #define SET_ALARM_HOUR   0
 #define SET_ALARM_MINUTE 1

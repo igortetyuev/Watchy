@@ -153,7 +153,9 @@ if the RTC wake arrives late: it rings within `[target, target +
 ALARM_LATE_MIN]` (5 min) and `alarmHandled` prevents a second ring in that
 window after dismissal. In the ring screen one right button snoozes for
 `ALARM_SNOOZE_MIN` (10 min), both right buttons together dismiss; ringing stops
-by itself after `ALARM_RING_MAX_MS` (5 min) to protect the battery. In the
+by itself after `ALARM_RING_MIN` minutes (default 5, overridable with a build
+define / `.env`) to protect the battery, and the countdown restarts for the
+post-snooze ring. In the
 editor, UP/DOWN cycle focus (hours → minutes → Enabled), MENU increments
 (minutes wrap 59→00 without carrying into hours; hold 2 s for 5 Hz
 auto-repeat), BACK saves to NVS (`alarmH`, `alarmM`, `alarmOn`). All constants
