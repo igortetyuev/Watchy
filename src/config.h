@@ -119,6 +119,7 @@
 #endif
 #define ALARM_RING_MAX_MS     (ALARM_RING_MIN * 60000UL)
 #define ALARM_LATE_MIN        5      // fire up to this many minutes after the target if a wake was missed
+#define ALARM_BTN_RELEASE_MS  50     // a release must hold this long to count (debounce)
 #define SET_ALARM_HOUR   0
 #define SET_ALARM_MINUTE 1
 #define SET_ALARM_ON     2

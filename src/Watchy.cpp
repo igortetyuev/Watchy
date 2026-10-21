@@ -779,15 +779,25 @@ void Watchy::ringAlarm() {
     if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
         digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
       // wait for release; if both right buttons are ever held together
-      // during the press, dismiss instead of snoozing
+      // during the press, dismiss instead of snoozing. A released state
+      // must persist for ALARM_BTN_RELEASE_MS so contact bounce cannot
+      // end the wait before the second button has time to be pressed.
       bool both = false;
-      while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
-             digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
-        if (digitalRead(UP_BTN_PIN) == ACTIVE_LOW &&
-            digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
+      uint32_t releasedAt = 0;
+      for (;;) {
+        bool up   = digitalRead(UP_BTN_PIN)   == ACTIVE_LOW;
+        bool down = digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW;
+        if (up && down) {
           both = true;
         }
-        delay(10);
+        if (up || down) {
+          releasedAt = 0;
+        } else if (releasedAt == 0) {
+          releasedAt = millis();
+        } else if (millis() - releasedAt >= ALARM_BTN_RELEASE_MS) {
+          break;
+        }
+        delay(5);
       }
       snooze = !both;
       done   = true;
@@ -801,10 +811,21 @@ void Watchy::ringAlarm() {
   digitalWrite(VIB_MOTOR_PIN, LOW);
 
   // make sure both right buttons are released so the press does not leak
-  // into the next wake as a button event
-  while (digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
-         digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW) {
-    delay(10);
+  // into the next wake as a button event (same debounce as above)
+  {
+    uint32_t releasedAt = 0;
+    for (;;) {
+      bool pressed = digitalRead(UP_BTN_PIN) == ACTIVE_LOW ||
+                     digitalRead(DOWN_BTN_PIN) == ACTIVE_LOW;
+      if (pressed) {
+        releasedAt = 0;
+      } else if (releasedAt == 0) {
+        releasedAt = millis();
+      } else if (millis() - releasedAt >= ALARM_BTN_RELEASE_MS) {
+        break;
+      }
+      delay(5);
+    }
   }
 
   if (snooze) {
