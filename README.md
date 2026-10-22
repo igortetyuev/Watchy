@@ -192,7 +192,9 @@ schedule is untouched. The step-counter interrupt is remapped to INT2 so
 walking does not wake the CPU, and `deepSleep()` calls `sensor.getINT()`
 before arming ext1 to deassert the latched level interrupt. Not supported
 on `ARDUINO_ESP32S3_DEV` (ext1 there is ANY_LOW, the accel pin is active
-high).
+high). Note the power cost: every accelerometer interrupt is a full boot
+cycle (~1.5 s), and the level-triggered INT1 can keep waking the watch
+while it rests in a tilted position — expect a real battery-drain hit.
 
 ### Menu and misc
 
