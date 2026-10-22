@@ -38,7 +38,7 @@
 #define UP_BTN_MASK   (BIT64(0))
 #define DOWN_BTN_MASK (BIT64(8))
 #define ACC_INT_MASK  (BIT64(14))
-#define BTN_PIN_MASK  MENU_BTN_MASK|BACK_BTN_MASK|UP_BTN_MASK|DOWN_BTN_MASK
+#define BTN_PIN_MASK  (MENU_BTN_MASK|BACK_BTN_MASK|UP_BTN_MASK|DOWN_BTN_MASK)
 
 #else //V1,V1.5,V2
 
@@ -82,7 +82,7 @@
 #define BACK_BTN_MASK (BIT64(25))
 #define DOWN_BTN_MASK (BIT64(4))
 #define ACC_INT_MASK  (BIT64(14))
-#define BTN_PIN_MASK  MENU_BTN_MASK|BACK_BTN_MASK|UP_BTN_MASK|DOWN_BTN_MASK
+#define BTN_PIN_MASK  (MENU_BTN_MASK|BACK_BTN_MASK|UP_BTN_MASK|DOWN_BTN_MASK)
 
 #endif
 
@@ -123,6 +123,35 @@
 #define SET_ALARM_HOUR   0
 #define SET_ALARM_MINUTE 1
 #define SET_ALARM_ON     2
+// night mode: inside [NIGHT_START_MIN, NIGHT_END_MIN) minutes-of-day the RTC
+// wakes the watch every NIGHT_WAKE_MIN minutes instead of every minute.
+// start == end disables it, start > end wraps midnight. NIGHT_WAKE_MIN is
+// 1..60 — the RTC alarm matches minutes only, so it cannot sleep longer.
+#ifndef NIGHT_START_MIN
+#define NIGHT_START_MIN 0
+#endif
+#ifndef NIGHT_END_MIN
+#define NIGHT_END_MIN   0
+#endif
+#ifndef NIGHT_WAKE_MIN
+#define NIGHT_WAKE_MIN  30
+#endif
+// 1 = no radios at night: automatic weather/NTP Wi-Fi use is skipped inside
+// the night window (manual menu actions still work)
+#ifndef NIGHT_NO_WIRELESS
+#define NIGHT_NO_WIRELESS 0
+#endif
+// 1 = a wrist flick (accelerometer tilt/double-tap on ACC_INT1) wakes the
+// watch and redraws the face if the last update was >= WRIST_REFRESH_MIN_S
+// ago (NIGHT_WAKE_MIN minutes inside the night window). Screen-only: the
+// wireless schedule is not touched. Not supported on ARDUINO_ESP32S3_DEV
+// (its ext1 wake is ANY_LOW, the accel interrupt is active high).
+#ifndef WRIST_REFRESH
+#define WRIST_REFRESH 0
+#endif
+#ifndef WRIST_REFRESH_MIN_S
+#define WRIST_REFRESH_MIN_S 60
+#endif
 // BLE OTA
 #define BLE_DEVICE_NAME        "Watchy BLE OTA"
 #define WATCHFACE_NAME         "Watchy 7 Segment"

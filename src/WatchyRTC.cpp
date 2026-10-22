@@ -29,17 +29,23 @@ void WatchyRTC::config(
   }
 }
 
-void WatchyRTC::clearAlarm() {
+void WatchyRTC::clearAlarm(uint8_t intervalMin) {
   if (rtcType == DS3231) {
-    rtc_ds.alarm(DS3232RTC::ALARM_2);
+    if (intervalMin <= 1) {
+      rtc_ds.setAlarm(DS3232RTC::ALM2_EVERY_MINUTE, 0, 0, 0);
+    } else {
+      tmElements_t tm;
+      rtc_ds.read(tm);
+      rtc_ds.setAlarm(DS3232RTC::ALM2_MATCH_MINUTES,
+                      (tm.Minute + intervalMin) % 60, 0, 0);
+    }
+    rtc_ds.alarm(DS3232RTC::ALARM_2); // resets the alarm flag in the RTC
   } else {
     int nextAlarmMinute = 0;
     rtc_pcf.clearAlarm(); // resets the alarm flag in the RTC
     nextAlarmMinute = rtc_pcf.getMinute();
-    nextAlarmMinute =
-        (nextAlarmMinute == 59)
-            ? 0
-            : (nextAlarmMinute + 1); // set alarm to trigger 1 minute from now
+    nextAlarmMinute = (nextAlarmMinute + intervalMin) %
+                      60; // set alarm to trigger intervalMin minutes from now
     rtc_pcf.setAlarm(nextAlarmMinute, 99, 99, 99);
   }
 }

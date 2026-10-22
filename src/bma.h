@@ -69,7 +69,8 @@ public:
   bool setRemapAxes(struct bma423_axes_remap *remap_data);
 
   bool enableFeature(uint8_t feature, uint8_t enable);
-  bool enableStepCountInterrupt(bool en = true);
+  bool enableStepCountInterrupt(bool en = true,
+                                uint8_t pinMap = BMA4_INTR1_MAP);
   bool enableTiltInterrupt(bool en = true);
   bool enableWakeupInterrupt(bool en = true);
   bool enableAnyNoMotionInterrupt(bool en = true);

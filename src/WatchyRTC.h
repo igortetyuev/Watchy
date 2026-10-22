@@ -23,7 +23,7 @@ public:
   WatchyRTC();
   void init();
   void config(String datetime); // String datetime format is YYYY:MM:DD:HH:MM:SS
-  void clearAlarm();
+  void clearAlarm(uint8_t intervalMin = 1);
   void read(tmElements_t &tm);
   void set(tmElements_t tm);
   uint8_t temperature();

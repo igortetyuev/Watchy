@@ -161,6 +161,39 @@ editor, UP/DOWN cycle focus (hours → minutes → Enabled), MENU increments
 auto-repeat), BACK saves to NVS (`alarmH`, `alarmM`, `alarmOn`). All constants
 are in `config.h`.
 
+### Night mode
+
+While local time is inside `[NIGHT_START_MIN, NIGHT_END_MIN)` (minutes of
+day, defined in `config.h` or via build defines) `deepSleep()` arms the RTC
+alarm `NIGHT_WAKE_MIN` minutes ahead instead of the usual next minute, so
+the watch wakes less often at night. `start == end` disables it,
+`start > end` wraps midnight. The RTC alarm matches minutes only, so the
+interval is capped at 60; a pending alarm/snooze shortens the sleep so it
+still rings on time, and `currentTime` is re-read first because minutes may
+have passed in a menu. `WatchyRTC::clearAlarm(intervalMin)` takes the
+interval (default 1): on DS3231 it switches between `ALM2_EVERY_MINUTE` and
+`ALM2_MATCH_MINUTES`, on PCF8563 it simply targets a later minute.
+
+`NIGHT_NO_WIRELESS=1` keeps the radios off at night: `getWeatherData()`
+then skips the Wi-Fi fetch inside the window and returns the last cached
+reading (or the internal sensor before the first fetch), leaving
+`weatherIntervalCounter` untouched so the schedule resumes in the morning.
+Manual menu actions still connect.
+
+### Wrist flick refresh (`WRIST_REFRESH`)
+
+`WRIST_REFRESH=1` adds `ACC_INT_MASK` to the ext1 wake mask: a BMA423
+tilt/double-tap interrupt wakes the watch like a button press. The wake
+redraws the face only when `guiState == WATCHFACE_STATE` and the last
+`showWatchFace()` was `>= WRIST_REFRESH_MIN_S` (60 s) ago —
+`NIGHT_WAKE_MIN` minutes inside the night window. `getWeatherData()` then
+returns the cached reading via `screenOnlyRefresh`, so the wireless
+schedule is untouched. The step-counter interrupt is remapped to INT2 so
+walking does not wake the CPU, and `deepSleep()` calls `sensor.getINT()`
+before arming ext1 to deassert the latched level interrupt. Not supported
+on `ARDUINO_ESP32S3_DEV` (ext1 there is ANY_LOW, the accel pin is active
+high).
+
 ### Menu and misc
 
 - `MENU_LENGTH` is 9 and `MENU_HEIGHT` 20 px so nine rows fit the 200 px

@@ -241,9 +241,9 @@ bool BMA423::isAnyNoMotion() {
   return (bool)(BMA423_ANY_NO_MOTION_INT & __IRQ_MASK);
 }
 
-bool BMA423::enableStepCountInterrupt(bool en) {
-  return (BMA4_OK == bma423_map_interrupt(BMA4_INTR1_MAP, BMA423_STEP_CNTR_INT,
-                                          en, &__devFptr));
+bool BMA423::enableStepCountInterrupt(bool en, uint8_t pinMap) {
+  return (BMA4_OK ==
+          bma423_map_interrupt(pinMap, BMA423_STEP_CNTR_INT, en, &__devFptr));
 }
 
 bool BMA423::enableTiltInterrupt(bool en) {

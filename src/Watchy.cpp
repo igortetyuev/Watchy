@@ -30,6 +30,10 @@ RTC_DATA_ATTR bool USB_PLUGGED_IN = false;
 RTC_DATA_ATTR tmElements_t bootTime;
 RTC_DATA_ATTR uint32_t lastIPAddress;
 RTC_DATA_ATTR char lastSSID[30];
+RTC_DATA_ATTR time_t lastRefreshAt = 0;
+static bool screenOnlyRefresh; // wrist flick: draw the face, skip wireless
+
+static bool nightTime(const tmElements_t &now);
 
 void Watchy::init(String datetime) {
   esp_sleep_wakeup_cause_t wakeup_reason;
@@ -75,13 +79,34 @@ void Watchy::init(String datetime) {
       break;
     }
     break;
-  case ESP_SLEEP_WAKEUP_EXT1: // button Press
+  case ESP_SLEEP_WAKEUP_EXT1: // button press or accelerometer
     RTC.read(currentTime);
     if (alarmDue()) {
       ringAlarm(); // shows the watch face; the button press is consumed
       break;
     }
+#if WRIST_REFRESH
+    {
+      uint64_t wakeupBit = esp_sleep_get_ext1_wakeup_status();
+      if ((wakeupBit & ACC_INT_MASK) && !(wakeupBit & BTN_PIN_MASK)) {
+        // wrist flick: redraw the face only when the last update is old
+        // enough — the interrupt itself is cleared in deepSleep()
+        time_t now   = makeTime(currentTime);
+        int32_t gap  = nightTime(currentTime) ? NIGHT_WAKE_MIN * 60
+                                              : WRIST_REFRESH_MIN_S;
+        int32_t age  = now - lastRefreshAt;
+        Serial.printf("FLICK age=%ds gap=%d\n", (int)age, (int)gap);
+        if (guiState == WATCHFACE_STATE && age >= gap) {
+          screenOnlyRefresh = true; // draw with cached weather, no Wi-Fi
+          showWatchFace(true);
+        }
+      } else {
+        handleButtonPress();
+      }
+    }
+#else
     handleButtonPress();
+#endif
     break;
   #ifdef ARDUINO_ESP32S3_DEV
   case ESP_SLEEP_WAKEUP_EXT0: // USB plug in
@@ -125,10 +150,47 @@ void Watchy::init(String datetime) {
   }
   deepSleep();
 }
+
+// true while local time is inside [NIGHT_START_MIN, NIGHT_END_MIN)
+static bool nightTime(const tmElements_t &now) {
+#if NIGHT_START_MIN != NIGHT_END_MIN
+  int nowMin = now.Hour * 60 + now.Minute;
+  return NIGHT_START_MIN < NIGHT_END_MIN
+             ? (nowMin >= NIGHT_START_MIN && nowMin < NIGHT_END_MIN)
+             : (nowMin >= NIGHT_START_MIN || nowMin < NIGHT_END_MIN);
+#else
+  return false;
+#endif
+}
+
+// Minutes until the next RTC wake: 1 during the day, NIGHT_WAKE_MIN inside
+// the night window — shortened when a pending alarm/snooze would otherwise
+// be overshot (the wake would arrive past the ALARM_LATE_MIN window).
+static uint8_t wakeIntervalMin(const tmElements_t &now) {
+#if NIGHT_START_MIN != NIGHT_END_MIN
+  if (nightTime(now) && NIGHT_WAKE_MIN > 1) {
+    int nowMin = now.Hour * 60 + now.Minute;
+    int wake   = NIGHT_WAKE_MIN > 60 ? 60 : NIGHT_WAKE_MIN;
+    int target = snoozeAt >= 0 ? snoozeAt
+                 : (alarmEnabled ? alarmHour * 60 + alarmMinute : -1);
+    if (target >= 0) {
+      int toTarget = (target - nowMin + 1440) % 1440;
+      if (toTarget >= 1 && toTarget < wake) {
+        wake = toTarget;
+      }
+    }
+    return wake;
+  }
+#endif
+  return 1;
+}
+
 void Watchy::deepSleep() {
   display.hibernate();
-  RTC.clearAlarm();        // resets the alarm flag in the RTC
+  RTC.read(currentTime); // minutes may have passed since the wake (menus)
+  uint8_t wakeMin = wakeIntervalMin(currentTime);
   #ifdef ARDUINO_ESP32S3_DEV
+  RTC.clearAlarm();        // resets the alarm flag in the RTC
   esp_sleep_enable_ext0_wakeup((gpio_num_t)USB_DET_PIN, USB_PLUGGED_IN ? LOW : HIGH); //// enable deep sleep wake on USB plug in/out
   rtc_gpio_set_direction((gpio_num_t)USB_DET_PIN, RTC_GPIO_MODE_INPUT_ONLY);
   rtc_gpio_pullup_en((gpio_num_t)USB_DET_PIN);
@@ -143,9 +205,10 @@ void Watchy::deepSleep() {
   //rtc_clk_slow_freq_set(RTC_SLOW_FREQ_32K_XTAL);
   struct tm timeinfo;
   getLocalTime(&timeinfo);
-  int secToNextMin = 60 - timeinfo.tm_sec;
-  esp_sleep_enable_timer_wakeup(secToNextMin * uS_TO_S_FACTOR);
+  int secToNextWake = wakeMin * 60 - timeinfo.tm_sec;
+  esp_sleep_enable_timer_wakeup(secToNextWake * uS_TO_S_FACTOR);
   #else
+  RTC.clearAlarm(wakeMin); // resets the flag and arms the next RTC wake
   // Set GPIOs 0-39 to input to avoid power leaking out
   const uint64_t ignore = 0b11110001000000110000100111000010; // Ignore some GPIOs due to resets
   for (int i = 0; i < GPIO_NUM_MAX; i++) {
@@ -155,10 +218,15 @@ void Watchy::deepSleep() {
   }
   esp_sleep_enable_ext0_wakeup((gpio_num_t)RTC_INT_PIN,
                                0); // enable deep sleep wake on RTC interrupt
+#if WRIST_REFRESH
+  sensor.getINT(); // clear a latched accel interrupt before arming wake
+#endif
   esp_sleep_enable_ext1_wakeup(
-      BTN_PIN_MASK,
+      BTN_PIN_MASK | (WRIST_REFRESH ? ACC_INT_MASK : 0),
       ESP_EXT1_WAKEUP_ANY_HIGH); // enable deep sleep wake on button press
   #endif
+  Serial.printf("SLEEP next wake in %d min\n", wakeMin);
+  Serial.flush(); // drain UART before the deep sleep shuts it down
   esp_deep_sleep_start();
 }
 
@@ -1144,6 +1212,9 @@ void Watchy::showWatchFace(bool partialRefresh) {
   display.epd2.asyncPowerOn();
   drawWatchFace();
   display.display(partialRefresh); // partial refresh
+#if WRIST_REFRESH
+  lastRefreshAt = makeTime(currentTime);
+#endif
   guiState = WATCHFACE_STATE;
 }
 
@@ -1166,6 +1237,27 @@ void Watchy::drawFace(uint8_t idx) {
 }
 
 weatherData Watchy::getWeatherData() {
+  if (screenOnlyRefresh) {
+    screenOnlyRefresh = false;
+    return currentWeather; // wrist flick: keep the cache, no radios
+  }
+#if NIGHT_NO_WIRELESS
+  if (nightTime(currentTime)) {
+    // no radios at night: keep the last fetched data, fall back to the
+    // internal sensor if nothing was fetched yet. weatherIntervalCounter
+    // is not touched, so the regular schedule resumes after the window.
+    if (!currentWeather.external) {
+      currentWeather.isMetric = settings.weatherUnit == String("metric");
+      uint8_t temperature     = sensor.readTemperature(); // celsius
+      if (!currentWeather.isMetric) {
+        temperature = temperature * 9. / 5. + 32.; // fahrenheit
+      }
+      currentWeather.temperature          = temperature;
+      currentWeather.weatherConditionCode = 800;
+    }
+    return currentWeather;
+  }
+#endif
   return _getWeatherData(settings.cityID, settings.lat, settings.lon,
     settings.weatherUnit, settings.weatherLang, settings.weatherURL,
     settings.weatherAPIKey, settings.weatherUpdateInterval);
@@ -1381,7 +1473,12 @@ void Watchy::_bmaConfig() {
   sensor.resetStepCounter();
 
   // Turn on feature interrupt
+#if WRIST_REFRESH
+  // keep step interrupts off the wake pin — they would fire while walking
+  sensor.enableStepCountInterrupt(true, BMA4_INTR2_MAP);
+#else
   sensor.enableStepCountInterrupt();
+#endif
   sensor.enableTiltInterrupt();
   // It corresponds to isDoubleClick interrupt
   sensor.enableWakeupInterrupt();
